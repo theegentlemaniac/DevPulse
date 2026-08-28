@@ -1,6 +1,6 @@
 import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Boxes, GitBranch, Search, X } from "lucide-react";
+import { Activity, Boxes, GitBranch, Search, X } from "lucide-react";
 import Canvas3D from "./components/Canvas3D";
 import GraphLegend from "./components/GraphLegend";
 import Sidebar from "./components/Sidebar";
@@ -30,6 +30,7 @@ export default function App() {
   const [repoSuggestions, setRepoSuggestions] = useState<string[]>([]);
   const [suggestionTarget, setSuggestionTarget] = useState<SuggestionTarget>(null);
   const [activeSuggestion, setActiveSuggestion] = useState(-1);
+  const [isDiscovering, setIsDiscovering] = useState(false);
 
   useEffect(() => {
     loadRepo();
@@ -51,20 +52,38 @@ export default function App() {
       return;
     }
 
+    let cancelled = false;
     const timer = window.setTimeout(() => {
-      void searchGitHubOwners(owner).then(setOwnerSuggestions);
-    }, 250);
-    return () => window.clearTimeout(timer);
+      setIsDiscovering(true);
+      void searchGitHubOwners(owner).then((suggestions) => {
+        if (!cancelled) {
+          setOwnerSuggestions(suggestions);
+          setIsDiscovering(false);
+        }
+      });
+    }, 120);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [owner]);
 
   useEffect(() => {
     if (suggestionTarget !== "repo") return;
+    let cancelled = false;
     const timer = window.setTimeout(() => {
+      setIsDiscovering(true);
       void listGitHubRepositories(owner).then((repositories) => {
-        setRepoSuggestions(repositories.filter((name) => name.toLowerCase().includes(repo.toLowerCase())));
+        if (!cancelled) {
+          setRepoSuggestions(repositories.filter((name) => name.toLowerCase().includes(repo.toLowerCase())));
+          setIsDiscovering(false);
+        }
       });
-    }, 200);
-    return () => window.clearTimeout(timer);
+    }, 80);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [owner, repo, suggestionTarget]);
 
   const selectSuggestion = (value: string) => {
@@ -136,7 +155,7 @@ export default function App() {
               placeholder="owner or GitHub URL"
               className="w-full border border-white/15 bg-void/70 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 transition-colors focus:border-accent"
             />
-            <SuggestionMenu target="owner" visible={suggestionTarget === "owner"} suggestions={ownerSuggestions} activeIndex={activeSuggestion} onSelect={selectSuggestion} />
+            <SuggestionMenu target="owner" visible={suggestionTarget === "owner"} suggestions={ownerSuggestions} isLoading={isDiscovering} activeIndex={activeSuggestion} onSelect={selectSuggestion} />
           </div>
           <span className="hidden text-white/40 sm:block">/</span>
           <div className="relative sm:w-36">
@@ -150,7 +169,7 @@ export default function App() {
               placeholder="repository"
               className="w-full border border-white/15 bg-void/70 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 transition-colors focus:border-accent"
             />
-            <SuggestionMenu target="repo" visible={suggestionTarget === "repo"} suggestions={repoSuggestions} activeIndex={activeSuggestion} onSelect={selectSuggestion} />
+            <SuggestionMenu target="repo" visible={suggestionTarget === "repo"} suggestions={repoSuggestions} isLoading={isDiscovering} activeIndex={activeSuggestion} onSelect={selectSuggestion} />
           </div>
           <motion.button
             variants={{ hidden: { opacity: 0, y: -6 }, visible: { opacity: 1, y: 0 } }}
@@ -224,6 +243,12 @@ export default function App() {
         )}
       </AnimatePresence>
       <GraphLegend nodes={nodes} />
+      <div className="pointer-events-none fixed right-4 top-4 z-10 hidden border border-white/10 bg-panel/75 px-3 py-2 text-right shadow-xl backdrop-blur-md sm:block sm:right-[25rem]">
+        <div className="flex items-center justify-end gap-2 text-[10px] font-semibold uppercase tracking-wide text-accent/80">
+          <Activity size={12} /> Dependency graph
+        </div>
+        <p className="mt-1 text-xs text-white/55">Select a node to trace its connections</p>
+      </div>
       <Sidebar />
     </div>
   );
@@ -233,12 +258,13 @@ interface SuggestionMenuProps {
   target: Exclude<SuggestionTarget, null>;
   visible: boolean;
   suggestions: string[];
+  isLoading: boolean;
   activeIndex: number;
   onSelect: (value: string) => void;
 }
 
-function SuggestionMenu({ target, visible, suggestions, activeIndex, onSelect }: SuggestionMenuProps) {
-  if (!visible || suggestions.length === 0) return null;
+function SuggestionMenu({ target, visible, suggestions, isLoading, activeIndex, onSelect }: SuggestionMenuProps) {
+  if (!visible || (!isLoading && suggestions.length === 0)) return null;
 
   return (
     <div className="absolute left-0 top-[calc(100%+0.25rem)] z-50 w-full min-w-48 overflow-hidden border border-white/15 bg-[#161621] shadow-2xl">
@@ -246,7 +272,8 @@ function SuggestionMenu({ target, visible, suggestions, activeIndex, onSelect }:
         {target === "owner" ? <Search size={11} /> : <GitBranch size={11} />}
         {target === "owner" ? "GitHub accounts" : "Recent repositories"}
       </div>
-      {suggestions.map((suggestion, index) => (
+      {isLoading && <p className="px-3 py-2 text-xs text-white/45">Searching GitHub...</p>}
+      {!isLoading && suggestions.map((suggestion, index) => (
         <button
           key={suggestion}
           type="button"

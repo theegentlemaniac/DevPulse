@@ -17,7 +17,9 @@ function Scene() {
 
   return (
     <>
-      <PerspectiveCamera makeDefault position={[0, 5, 22]} fov={55} />
+      <color attach="background" args={["#070a12"]} />
+      <fog attach="fog" args={["#070a12", 24, 72]} />
+      <PerspectiveCamera makeDefault position={[0, 5, 24]} fov={52} />
       <OrbitControls
         makeDefault
         enableDamping
@@ -29,8 +31,10 @@ function Scene() {
       <ambientLight intensity={0.4} />
       <directionalLight position={[10, 15, 10]} intensity={1.2} castShadow />
       <directionalLight position={[-10, -5, -10]} intensity={0.3} color="#22d3ee" />
+      <pointLight position={[0, 4, 0]} intensity={1.1} color="#22d3ee" distance={30} />
 
       <Stars radius={80} depth={40} count={2000} factor={2} fade speed={0.5} />
+      <gridHelper args={[90, 30, "#17313b", "#0e1c25"]} position={[0, -9, 0]} />
 
       {/* Clicking empty space deselects the current node */}
       <mesh

@@ -15,6 +15,7 @@ vi.mock("@react-three/drei", () => ({
   OrbitControls: () => null,
   PerspectiveCamera: () => null,
   Stars: () => null,
+  Text: () => null,
 }));
 
 function createNode(id: string): GraphNode {

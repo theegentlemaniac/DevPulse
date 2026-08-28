@@ -1,4 +1,6 @@
 const GITHUB_API_URL = "https://api.github.com";
+const ownerCache = new Map<string, Promise<string[]>>();
+const repositoryCache = new Map<string, Promise<string[]>>();
 
 interface GitHubUserSearchResponse {
   items: Array<{ login: string }>;
@@ -26,31 +28,51 @@ function isGitHubRepositoryResponse(value: unknown): value is GitHubRepositoryRe
 }
 
 export async function searchGitHubOwners(query: string): Promise<string[]> {
-  if (query.trim().length < 2) return [];
+  const normalizedQuery = query.trim().toLowerCase();
+  if (normalizedQuery.length < 2) return [];
 
-  const response = await fetch(
-    `${GITHUB_API_URL}/search/users?q=${encodeURIComponent(`${query} in:login`)}&per_page=6`,
-  );
-  if (!response.ok) return [];
+  const cachedResult = ownerCache.get(normalizedQuery);
+  if (cachedResult) return cachedResult;
 
-  const body: unknown = await response.json();
-  return isGitHubUserSearchResponse(body)
-    ? body.items
-        .map((item) => item.login)
-        .filter((login) => login.toLowerCase().startsWith(query.trim().toLowerCase()))
-    : [];
+  const request = fetch(
+    `${GITHUB_API_URL}/search/users?q=${encodeURIComponent(`${normalizedQuery} in:login`)}&per_page=6`,
+  )
+    .then(async (response) => {
+      if (!response.ok) return [];
+
+      const body: unknown = await response.json();
+      return isGitHubUserSearchResponse(body)
+        ? body.items
+            .map((item) => item.login)
+            .filter((login) => login.toLowerCase().startsWith(normalizedQuery))
+        : [];
+    })
+    .catch(() => []);
+
+  ownerCache.set(normalizedQuery, request);
+  return request;
 }
 
 export async function listGitHubRepositories(owner: string): Promise<string[]> {
-  if (!owner.trim()) return [];
+  const normalizedOwner = owner.trim().toLowerCase();
+  if (!normalizedOwner) return [];
 
-  const response = await fetch(
-    `${GITHUB_API_URL}/users/${encodeURIComponent(owner)}/repos?sort=updated&per_page=8`,
-  );
-  if (!response.ok) return [];
+  const cachedResult = repositoryCache.get(normalizedOwner);
+  if (cachedResult) return cachedResult;
 
-  const body: unknown = await response.json();
-  if (!Array.isArray(body) || !body.every(isGitHubRepositoryResponse)) return [];
+  const request = fetch(
+    `${GITHUB_API_URL}/users/${encodeURIComponent(normalizedOwner)}/repos?sort=updated&per_page=8`,
+  )
+    .then(async (response) => {
+      if (!response.ok) return [];
 
-  return body.filter((repository) => !repository.fork).map((repository) => repository.name);
+      const body: unknown = await response.json();
+      if (!Array.isArray(body) || !body.every(isGitHubRepositoryResponse)) return [];
+
+      return body.filter((repository) => !repository.fork).map((repository) => repository.name);
+    })
+    .catch(() => []);
+
+  repositoryCache.set(normalizedOwner, request);
+  return request;
 }
