@@ -22,7 +22,8 @@ and interviewers who want a compact, interactive way to explore a codebase.
 
 - Ingests public GitHub repositories with `main`/`master` fallback.
 - Limits files to JavaScript and TypeScript sources smaller than 50 KB, with a
-  configurable cap of 150 files and eight concurrent content requests.
+  configurable fetcher cap of 150 files. The unauthenticated UI uses 50 files
+  so a first-time visitor stays within GitHub's public API request allowance.
 - Shows friendly loading and GitHub rate-limit feedback without losing the
   currently visible graph.
 - Models files as color-coded nodes: spheres for modules and cubes for React

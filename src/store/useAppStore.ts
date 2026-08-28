@@ -4,6 +4,7 @@ import { parseRepo } from "../utils/parser";
 import { fetchRepoFiles, GitHubRateLimitError } from "../utils/githubFetcher";
 
 type LoadingState = "idle" | "loading" | "error" | "success";
+const PUBLIC_GITHUB_FILE_CAP = 50;
 
 interface AppState {
   nodes: GraphNode[];
@@ -46,7 +47,7 @@ export const useAppStore = create<AppState>((set) => ({
     set({ loadingState: "loading", errorMessage: null, selectedNodeId: null });
 
     try {
-      const files = await fetchRepoFiles(owner, repo, branch);
+      const files = await fetchRepoFiles(owner, repo, branch, PUBLIC_GITHUB_FILE_CAP);
       const { nodes, edges } = parseRepo(files);
       set({ nodes, edges, loadingState: "success" });
     } catch (error: unknown) {

@@ -1,10 +1,19 @@
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, KeyboardEvent, useEffect, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Boxes, X } from "lucide-react";
+import { Boxes, GitBranch, Search, X } from "lucide-react";
 import Canvas3D from "./components/Canvas3D";
 import GraphLegend from "./components/GraphLegend";
 import Sidebar from "./components/Sidebar";
 import { useAppStore } from "./store/useAppStore";
+import { listGitHubRepositories, searchGitHubOwners } from "./utils/githubSearch";
+
+type SuggestionTarget = "owner" | "repo" | null;
+
+function parseRepositoryInput(value: string): { owner: string; repo: string } | null {
+  const normalized = value.trim().replace(/^git@github\.com:/i, "https://github.com/");
+  const match = normalized.match(/(?:github\.com\/)?([\w-]+)\/([\w.-]+?)(?:\.git)?\/?$/i);
+  return match ? { owner: match[1], repo: match[2] } : null;
+}
 
 export default function App() {
   const loadRepo = useAppStore((s) => s.loadRepo);
@@ -17,6 +26,10 @@ export default function App() {
   const [owner, setOwner] = useState("pmndrs");
   const [repo, setRepo] = useState("zustand");
   const [isErrorHovered, setIsErrorHovered] = useState(false);
+  const [ownerSuggestions, setOwnerSuggestions] = useState<string[]>([]);
+  const [repoSuggestions, setRepoSuggestions] = useState<string[]>([]);
+  const [suggestionTarget, setSuggestionTarget] = useState<SuggestionTarget>(null);
+  const [activeSuggestion, setActiveSuggestion] = useState(-1);
 
   useEffect(() => {
     loadRepo();
@@ -28,6 +41,56 @@ export default function App() {
     const dismissTimer = window.setTimeout(clearError, 6000);
     return () => window.clearTimeout(dismissTimer);
   }, [clearError, errorMessage, isErrorHovered, loadingState]);
+
+  useEffect(() => {
+    const parsed = parseRepositoryInput(owner);
+    if (parsed) {
+      setOwner(parsed.owner);
+      setRepo(parsed.repo);
+      setSuggestionTarget(null);
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      void searchGitHubOwners(owner).then(setOwnerSuggestions);
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [owner]);
+
+  useEffect(() => {
+    if (suggestionTarget !== "repo") return;
+    const timer = window.setTimeout(() => {
+      void listGitHubRepositories(owner).then((repositories) => {
+        setRepoSuggestions(repositories.filter((name) => name.toLowerCase().includes(repo.toLowerCase())));
+      });
+    }, 200);
+    return () => window.clearTimeout(timer);
+  }, [owner, repo, suggestionTarget]);
+
+  const selectSuggestion = (value: string) => {
+    if (suggestionTarget === "owner") setOwner(value);
+    if (suggestionTarget === "repo") setRepo(value);
+    setSuggestionTarget(null);
+    setActiveSuggestion(-1);
+  };
+
+  const handleSuggestionKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    const suggestions = suggestionTarget === "owner" ? ownerSuggestions : repoSuggestions;
+    if (!suggestionTarget || suggestions.length === 0) return;
+
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      setActiveSuggestion((current) => {
+        const direction = event.key === "ArrowDown" ? 1 : -1;
+        return (current + direction + suggestions.length) % suggestions.length;
+      });
+    } else if (event.key === "Enter" && activeSuggestion >= 0) {
+      event.preventDefault();
+      selectSuggestion(suggestions[activeSuggestion]);
+    } else if (event.key === "Escape") {
+      setSuggestionTarget(null);
+    }
+  };
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -54,23 +117,41 @@ export default function App() {
           variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
           className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center"
         >
-          <motion.input
-            variants={{ hidden: { opacity: 0, y: -6 }, visible: { opacity: 1, y: 0 } }}
-            aria-label="GitHub owner"
-            value={owner}
-            onChange={(event) => setOwner(event.target.value)}
-            placeholder="owner"
-            className="w-full border border-white/15 bg-void/70 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 transition-colors focus:border-accent sm:w-32"
-          />
+          <div className="relative sm:w-32">
+            <motion.input
+              variants={{ hidden: { opacity: 0, y: -6 }, visible: { opacity: 1, y: 0 } }}
+              aria-label="GitHub owner"
+              value={owner}
+              onChange={(event) => setOwner(event.target.value)}
+              onPaste={(event) => {
+                const parsed = parseRepositoryInput(event.clipboardData.getData("text"));
+                if (!parsed) return;
+                event.preventDefault();
+                setOwner(parsed.owner);
+                setRepo(parsed.repo);
+                setSuggestionTarget(null);
+              }}
+              onFocus={() => setSuggestionTarget("owner")}
+              onKeyDown={handleSuggestionKeyDown}
+              placeholder="owner or GitHub URL"
+              className="w-full border border-white/15 bg-void/70 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 transition-colors focus:border-accent"
+            />
+            <SuggestionMenu target="owner" visible={suggestionTarget === "owner"} suggestions={ownerSuggestions} activeIndex={activeSuggestion} onSelect={selectSuggestion} />
+          </div>
           <span className="hidden text-white/40 sm:block">/</span>
-          <motion.input
-            variants={{ hidden: { opacity: 0, y: -6 }, visible: { opacity: 1, y: 0 } }}
-            aria-label="GitHub repository"
-            value={repo}
-            onChange={(event) => setRepo(event.target.value)}
-            placeholder="repository"
-            className="w-full border border-white/15 bg-void/70 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 transition-colors focus:border-accent sm:w-36"
-          />
+          <div className="relative sm:w-36">
+            <motion.input
+              variants={{ hidden: { opacity: 0, y: -6 }, visible: { opacity: 1, y: 0 } }}
+              aria-label="GitHub repository"
+              value={repo}
+              onChange={(event) => setRepo(event.target.value)}
+              onFocus={() => setSuggestionTarget("repo")}
+              onKeyDown={handleSuggestionKeyDown}
+              placeholder="repository"
+              className="w-full border border-white/15 bg-void/70 px-3 py-2 text-sm text-white outline-none placeholder:text-white/35 transition-colors focus:border-accent"
+            />
+            <SuggestionMenu target="repo" visible={suggestionTarget === "repo"} suggestions={repoSuggestions} activeIndex={activeSuggestion} onSelect={selectSuggestion} />
+          </div>
           <motion.button
             variants={{ hidden: { opacity: 0, y: -6 }, visible: { opacity: 1, y: 0 } }}
             type="submit"
@@ -144,6 +225,38 @@ export default function App() {
       </AnimatePresence>
       <GraphLegend nodes={nodes} />
       <Sidebar />
+    </div>
+  );
+}
+
+interface SuggestionMenuProps {
+  target: Exclude<SuggestionTarget, null>;
+  visible: boolean;
+  suggestions: string[];
+  activeIndex: number;
+  onSelect: (value: string) => void;
+}
+
+function SuggestionMenu({ target, visible, suggestions, activeIndex, onSelect }: SuggestionMenuProps) {
+  if (!visible || suggestions.length === 0) return null;
+
+  return (
+    <div className="absolute left-0 top-[calc(100%+0.25rem)] z-50 w-full min-w-48 overflow-hidden border border-white/15 bg-[#161621] shadow-2xl">
+      <div className="flex items-center gap-1.5 border-b border-white/10 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wide text-white/40">
+        {target === "owner" ? <Search size={11} /> : <GitBranch size={11} />}
+        {target === "owner" ? "GitHub accounts" : "Recent repositories"}
+      </div>
+      {suggestions.map((suggestion, index) => (
+        <button
+          key={suggestion}
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onSelect(suggestion)}
+          className={`block w-full px-3 py-2 text-left text-sm transition-colors ${index === activeIndex ? "bg-accent/15 text-accent" : "text-white/80 hover:bg-white/10"}`}
+        >
+          {suggestion}
+        </button>
+      ))}
     </div>
   );
 }
